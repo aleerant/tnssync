@@ -1,8 +1,8 @@
 TNSSYNC
 ----
 TNSSYNC creates tnsnames.ora file for services listed in a config file (tnssync.ora) getting Oracle Net Description data from a directory server (described in ldap.ora)
-Usage
 
+Usage
 ----
 
 ```
