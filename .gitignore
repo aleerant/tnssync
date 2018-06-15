@@ -1,2 +1,7 @@
-/bin/
-/target/
+# Maven 
+target/
+
+# eclipse project file
+.settings/
+.classpath
+.project

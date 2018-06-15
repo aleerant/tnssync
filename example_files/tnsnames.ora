@@ -1,0 +1,17 @@
+DB5 =   (DESCRIPTION=
+            (ADDRESS_LIST=
+                (ADDRESS=(PROTOCOL=TCP)(HOST=192.168.1.12)(PORT=1521))
+            )
+            (CONNECT_DATA=
+                (SERVER=DEDICATED)(SERVICE_NAME=DB5)
+            )
+        )
+
+
+### AUTO-GENERATED SECTION ##########################################
+#This is an automatically generated section, please do not modify it!
+#Edit tnssync.ora file instead of this!
+#Modified: 2018-06-14 12:15:17.072
+
+DB1 = (DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.1.10)(PORT=1521)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=DB1)))
+DBX = (DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.1.10)(PORT=1521)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=DB2)))

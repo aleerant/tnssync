@@ -1,11 +1,12 @@
 package com.aleerant.tnssync;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+
 import javax.naming.Context;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
@@ -68,11 +69,11 @@ public class LdapHandler {
 		return Arrays.asList(providerURLs.replaceAll("[()\\s]", "").split(","));
 	}
 
-	public List<TnsEntry> queryTnsEntryList(List<String> filterCnList) throws AppException {
+	public Map<String, TnsEntry> queryTnsEntryMap(List<String> filterCnList) throws AppException {
 		LOGGER.debug(
-				"start queryTnsEntryList: querying of net service data (objectClass: orclNetService) from ldap server");
+				"start queryTnsEntryMap: querying of net service data (objectClass: orclNetService) from ldap server");
 		NamingEnumeration<SearchResult> namingEnum;
-		List<TnsEntry> resultTnsEntries = new ArrayList<TnsEntry>();
+		Map<String, TnsEntry> resultTnsEntries = new HashMap<String, TnsEntry>();
 
 		if (filterCnList != null && filterCnList.size() > 0) {
 			try {
@@ -84,7 +85,7 @@ public class LdapHandler {
 					if (filterCnList.contains(attrs.get("cn").get().toString().toUpperCase())) {
 						TnsEntry entry = new TnsEntry(attrs.get("cn").get().toString(),
 								attrs.get("orclNetDescString").get().toString());
-						resultTnsEntries.add(entry);
+						resultTnsEntries.put(entry.getNetServiceName(), entry);
 						LOGGER.debug("found {}", entry.toString());
 					}
 				}
@@ -97,10 +98,7 @@ public class LdapHandler {
 			LOGGER.debug("list is empty, skip search");
 		}
 
-		if (resultTnsEntries.size() > 0) {
-			Collections.sort(resultTnsEntries);
-		}
-		LOGGER.debug("end queryTnsEntryList");
+		LOGGER.debug("end queryTnsEntryMap");
 		return resultTnsEntries;
 	}
 

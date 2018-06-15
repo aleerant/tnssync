@@ -11,10 +11,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.sql.Timestamp;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Scanner;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.LoggerFactory;
@@ -22,7 +19,8 @@ import org.slf4j.LoggerFactory;
 public class AppFileHandler implements APPCONSTANT {
 	private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(AppFileHandler.class);
 
-	private static final String TNSNAMES_FILE_HEAD_MESSAGE = "#This is an automatically generated file, please do not modify it!\n#Edit "
+	private static final String TNSNAMES_FILE_HEAD_MESSAGE = APP_AUTO_SECTION_MARK + " ##########################################\n"
+			+ "#This is an automatically generated section, please do not modify it!\n#Edit "
 			+ APP_TNSSYNC_FILENAME + " file instead of this!";
 
 	private Path mTnsAdminPath, mTnsSyncFilePath, mTnsTmpbuildFilePath, mTnsNamesFilePath;
@@ -41,35 +39,49 @@ public class AppFileHandler implements APPCONSTANT {
 		LOGGER.debug("AppFileHandler properties: [TnsNamesFilePath    = {}]", mTnsNamesFilePath.toString());
 	}
 
-	public List<String> getTnsSyncList() throws TnsSyncFileMissingException {
+	public List<TnsSyncEntry> getTnsSyncList() throws TnsSyncFileMissingException, AppException {
 		LOGGER.debug("start getTnsSyncList from TnsSyncFile [{}]", mTnsSyncFilePath);
-		Scanner s;
-		Set<String> hs = new HashSet<>();
-		try {
-			s = new Scanner(mTnsSyncFilePath.toFile());
+		List<TnsSyncEntry> resultEntries = new ArrayList<TnsSyncEntry>();
+		Pattern patternSimple = Pattern.compile("^\\s*(\\w+)\\s*$");
+		Matcher matcherSimple = patternSimple.matcher("");
+		Pattern patternFullFormat = Pattern.compile("^\\s*(\\w+?)\\s*=\\s*(\\w+?)\\s*$");
+		Matcher matcherFullFormat = patternFullFormat.matcher("");
 
-			String word;
-			while (s.hasNext()) {
-				word = s.next().toUpperCase().replaceAll("\\s", "");
-				LOGGER.trace("process word, [{}]", word);
-				if (word.startsWith("#")) {
-					s.nextLine();
-					LOGGER.trace("skip remaining in line");
-				} else {
-					hs.add(word);
-					LOGGER.trace("add [{}]", word);
+		try (BufferedReader br = new BufferedReader(new FileReader(mTnsSyncFilePath.toFile()))) {
+			for (String line; (line = br.readLine()) != null;) {
+				LOGGER.trace("read line [{}]", line);
+				if (line.trim().startsWith("#") || line.trim().isEmpty()) {
+					continue;
 				}
-			}
 
-			s.close();
+				matcherSimple.reset(line);
+				if (matcherSimple.find()) {
+					TnsSyncEntry entry = new TnsSyncEntry(matcherSimple.group(1), matcherSimple.group(1));
+					resultEntries.add(entry);
+					LOGGER.debug("found {}", entry.toString());
+					continue;
+				}
+				
+				matcherFullFormat.reset(line);
+				if (matcherFullFormat.find()) {
+					TnsSyncEntry entry = new TnsSyncEntry(matcherFullFormat.group(1), matcherFullFormat.group(2));
+					resultEntries.add(entry);
+					LOGGER.debug("found {}", entry.toString());
+					continue;
+				}
+
+				LOGGER.debug("{} file is corrupt, line: \"{}\"", APP_TNSSYNC_FILENAME, line);
+				throw new AppException(APP_TNSSYNC_FILENAME + " file is corrupt, line: \""+ line + "\"");
+			}
 		} catch (FileNotFoundException e) {
-			LOGGER.warn("{} file is missing [{}]", APP_TNSSYNC_FILENAME, mTnsSyncFilePath.toString());
 			throw new TnsSyncFileMissingException();
+		} catch (IOException e) {
+			throw new AppException("can not read " + APP_TNSSYNC_FILENAME + " file (" + mTnsSyncFilePath.toString()
+					+ "), error message: " + e.getMessage() + ", caused by:" + e.getCause());
 		}
-		List<String> tnsSyncList = new ArrayList<String>();
-		tnsSyncList.addAll(hs);
-		LOGGER.debug("end getTnsSyncList, result {}", tnsSyncList.toString());
-		return tnsSyncList;
+
+		LOGGER.debug("end getTnsSyncList, result {}", resultEntries.toString());
+		return resultEntries;
 	}
 
 	public List<TnsEntry> getCurrentTnsEntryList() throws AppException {
@@ -79,10 +91,17 @@ public class AppFileHandler implements APPCONSTANT {
 		List<TnsEntry> resultTnsEntries = new ArrayList<TnsEntry>();
 		Pattern pattern = Pattern.compile("^\\s*(\\w+?)\\s*=\\s*(.*)");
 		Matcher matcher = pattern.matcher("");
+		boolean autoSectionFound = false;
 
 		try (BufferedReader br = new BufferedReader(new FileReader(mTnsNamesFilePath.toFile()))) {
 			for (String line; (line = br.readLine()) != null;) {
 				LOGGER.trace("read line [{}]", line);
+				
+				if (!autoSectionFound) {
+					if (line.trim().startsWith(APP_AUTO_SECTION_MARK)) autoSectionFound = true;
+					continue;
+				}
+				
 				if (line.trim().startsWith("#") || line.trim().isEmpty()) {
 					continue;
 				}
@@ -109,6 +128,10 @@ public class AppFileHandler implements APPCONSTANT {
 		LOGGER.debug("end getCurrentTnsEntryList");
 		return resultTnsEntries;
 	}
+	
+	public Path getTnsSyncFilePath() {
+		return mTnsSyncFilePath;
+	}
 
 	public boolean isCurrentTnsNamesCorrupt() {
 		return mCurrentTnsNamesCorrupt;
@@ -118,17 +141,33 @@ public class AppFileHandler implements APPCONSTANT {
 		LOGGER.debug("start writeNetServiceDataToBuildFile [{}]", mTnsTmpbuildFilePath.toString());
 		try {
 			java.util.Date date = new java.util.Date();
-			PrintWriter writer;
-			writer = new PrintWriter(mTnsTmpbuildFilePath.toFile());
-			writer.println(TNSNAMES_FILE_HEAD_MESSAGE);
-			writer.println("#Modified: " + new Timestamp(date.getTime()));
-			writer.println();
-			for (TnsEntry tnsName : tnsNames) {
-				writer.println(tnsName.getTnsNamesEntryFormat());
+			BufferedReader br = new BufferedReader(new FileReader(mTnsNamesFilePath.toFile()));
+			PrintWriter w = new PrintWriter(mTnsTmpbuildFilePath.toFile());
+			
+			for (String line; (line = br.readLine()) != null;) {
+				LOGGER.trace("read line [{}]", line);
+				
+				if (!line.trim().startsWith(APP_AUTO_SECTION_MARK)) {
+					w.println(line);
+					continue;
+				} else {
+					break;
+				}
 			}
-			writer.close();
-		} catch (FileNotFoundException e) {
-			throw new AppException("can not write build file (" + mTnsTmpbuildFilePath.toString() + "), error message: "
+			br.close();
+			
+			w.println(TNSNAMES_FILE_HEAD_MESSAGE);
+			w.println("#Modified: " + new Timestamp(date.getTime()));
+			w.println();
+			for (TnsEntry tnsName : tnsNames) {
+				w.println(tnsName.getTnsNamesEntryFormat());
+			}
+			w.close();
+		} catch (IOException e) {
+			throw new AppException("can not create build file (" + mTnsTmpbuildFilePath.toString() 
+					+ ") or read tnsnames.ora file ("
+					+ mTnsNamesFilePath.toString()
+					+ "), error message: "
 					+ e.getMessage() + ", caused by:" + e.getCause());
 		}
 		LOGGER.debug("end writeNetServiceDataToBuildFile");

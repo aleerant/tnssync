@@ -16,9 +16,17 @@
 
 package com.aleerant.tnssync;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 
@@ -26,8 +34,6 @@ public class TnsSyncFromLdap implements APPCONSTANT {
 	private static LdapHandler mLdapHandler;
 	private static AppFileHandler mFileHandler;
 	private static PropertiesHandler mPropertiesHandler;
-	private static List<String> mTnsSyncList;
-	private static List<TnsEntry> mTnsEntryListFromLdap, mCurrentTnsEntryList;
 
 	private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(TnsSyncFromLdap.class);
 
@@ -37,42 +43,39 @@ public class TnsSyncFromLdap implements APPCONSTANT {
 
 		try {
 			mPropertiesHandler = new PropertiesHandler(args);
-			System.out.println(APP_NAME + "-" + APP_VERSION + " started...");
-			LOGGER.info("start");
+			MDC.put("tnsadmin", mPropertiesHandler.getTnsAdminPath().toString());
+			LOGGER.info(String.format("start (%s-%s)", APP_NAME, APP_VERSION));
 			mFileHandler = new AppFileHandler(mPropertiesHandler.getTnsAdminPath());
 			mLdapHandler = new LdapHandler(mPropertiesHandler.getDirectoryServers(),
 					mPropertiesHandler.getDefaultAdminContext());
 
 			try {
-				mTnsSyncList = mFileHandler.getTnsSyncList();
-				mTnsEntryListFromLdap = mLdapHandler.queryTnsEntryList(mTnsSyncList);
-				mCurrentTnsEntryList = mFileHandler.getCurrentTnsEntryList();
+				List<TnsSyncEntry> tnsSyncList = mFileHandler.getTnsSyncList();
+				Map<String, TnsEntry> tnsDataFromLdap = mLdapHandler.queryTnsEntryMap(getUniqueNetServiceNameList(tnsSyncList));
+				List<TnsEntry> tnsEntryListFromLdap = createTnsEntryListForTnsSyncEntries(tnsSyncList, tnsDataFromLdap);
+				List<TnsEntry> tnsEntryListCurrent = mFileHandler.getCurrentTnsEntryList();
 
 				if (mFileHandler.isCurrentTnsNamesCorrupt()
-						|| !equalLists(mTnsEntryListFromLdap, mCurrentTnsEntryList)) {
-					mFileHandler.writeNetServiceDataToBuildFile(mTnsEntryListFromLdap);
+						|| !equalLists(tnsEntryListFromLdap, tnsEntryListCurrent)) {
+					mFileHandler.writeNetServiceDataToBuildFile(tnsEntryListFromLdap);
 					mFileHandler.moveBuidFileToFinal();
-					System.out.println("new tnsnames.ora file created (" + (mTnsEntryListFromLdap.size() < 2
-							? mTnsEntryListFromLdap.size() + " entry" : mTnsEntryListFromLdap.size() + " entries")
+					LOGGER.info("new tnsnames.ora file created (" + (tnsEntryListFromLdap.size() < 2
+							? tnsEntryListFromLdap.size() + " entry" : tnsEntryListFromLdap.size() + " entries")
 							+ ")");
 				} else {
-					System.out.println("nothing to do");
+					LOGGER.info("nothing to do");
 				}
 
 			} catch (TnsSyncFileMissingException e) {
-				System.out.println(APP_TNSSYNC_FILENAME + " file is missing");
+				LOGGER.warn("{} file is missing [{}]", APP_TNSSYNC_FILENAME, mFileHandler.getTnsSyncFilePath().toString());
 			}
-
-			System.out.println("finished.");
 			LOGGER.info("finished");
 
 		} catch (AppException e) {
-			System.err.println(e.getMessage());
 			// e.printStackTrace();
 			LOGGER.error(e.getMessage());
 			System.exit(1);
 		} catch (Exception e) {
-			System.err.println(e.getMessage());
 			// e.printStackTrace();
 			LOGGER.error(Utils.getStackTrace(e));
 			System.exit(1);
@@ -88,5 +91,43 @@ public class TnsSyncFromLdap implements APPCONSTANT {
 		Collections.sort(one);
 		Collections.sort(two);
 		return one.equals(two);
+	}
+	
+	public static List<String> getUniqueNetServiceNameList(List<TnsSyncEntry> tnsSyncEntries) {
+		LOGGER.debug("start getUniqueNetServiceNameList");
+		Set<String> hs = new HashSet<>();
+
+		for (TnsSyncEntry tnsSyncEntry : tnsSyncEntries) {
+			hs.add(tnsSyncEntry.getNetServiceName());
+		}
+		List<String> resultList = new ArrayList<String>();
+		resultList.addAll(hs);
+		LOGGER.debug("end getUniqueNetServiceNameList, result {}", resultList.toString());
+		return resultList;		
+	}
+	
+	public static List<TnsEntry> createTnsEntryListForTnsSyncEntries(
+			List<TnsSyncEntry> tnsSyncEntries, Map<String, TnsEntry> tnsEntries) {
+		LOGGER.debug("start createTnsEntryListForTnsSyncEntries");
+		List<TnsEntry> resultList = new ArrayList<TnsEntry>();
+		
+		LOGGER.debug("creating ordered Map for tnsSyncEntries");
+		Map<String, TnsSyncEntry> om = new TreeMap<String, TnsSyncEntry>();
+		for (TnsSyncEntry tnsSyncEntry : tnsSyncEntries) { 
+			om.put(tnsSyncEntry.getEntryName(), tnsSyncEntry);
+		}
+		LOGGER.debug("Map created, result {}", om.toString());
+		
+		for (Map.Entry<String, TnsSyncEntry> tnsSyncEntry : om.entrySet()) {
+			LOGGER.debug(" processing tnsSyncEntry: {}", tnsSyncEntry.toString());
+			TnsEntry tnsEntry = tnsEntries.get(tnsSyncEntry.getValue().getNetServiceName());
+			if (tnsEntry != null) {
+				LOGGER.debug("  netServiveName ({}) is found, tnsEntry: {}", tnsSyncEntry.getValue().getNetServiceName(), tnsEntry.toString());
+				resultList.add(new TnsEntry(tnsSyncEntry.getValue().getEntryName(),tnsEntry.getNetDescriptionString()));
+			}
+		}
+
+		LOGGER.debug("end createTnsEntryListForTnsSyncEntries, result {}", resultList.toString());
+		return resultList;		
 	}
 }

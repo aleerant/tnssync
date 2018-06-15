@@ -1,0 +1,3 @@
+DIRECTORY_SERVERS = (ldapserver.yourdomain.com:389)
+DEFAULT_ADMIN_CONTEXT = "ou=services,dc=yourdomain,dc=com"
+DIRECTORY_SERVER_TYPE = OID

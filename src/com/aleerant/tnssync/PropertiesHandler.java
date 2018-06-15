@@ -15,8 +15,15 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
 import ch.qos.logback.classic.joran.JoranConfigurator;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.ConsoleAppender;
 import ch.qos.logback.core.joran.spi.JoranException;
 import ch.qos.logback.core.util.StatusPrinter;
 
@@ -24,7 +31,7 @@ public class PropertiesHandler implements APPCONSTANT {
 
 	private CommandLineParser mParser = new DefaultParser();
 	private Options mOptions = new Options();
-	private String mTnsAdminPathString, mDefaultAdminContext, mDirectoryServers;
+	private String mTnsAdminPathString, mDefaultAdminContext, mDirectoryServers, mlogbackConfigFile;
 
 	public PropertiesHandler(String[] args) throws AppException {
 		initOptions();
@@ -47,8 +54,19 @@ public class PropertiesHandler implements APPCONSTANT {
 			} else {
 				mTnsAdminPathString = (System.getenv()).get("TNS_ADMIN");
 				if (mTnsAdminPathString == null) {
+					System.err.println("Missing envinronment variable: TNS_ADMIN");
 					throw new IllegalArgumentException("Missing envinronment variable: TNS_ADMIN");
 				}
+			}
+			
+			if (cl.hasOption("l")) {
+				mlogbackConfigFile = cl.getOptionValue("l");
+				if (Files.notExists(Paths.get(mlogbackConfigFile))) {
+					System.err.println("Missing logback configuration file: " + mlogbackConfigFile);
+					throw new IllegalArgumentException("Missing logback configuration file: " + mlogbackConfigFile);
+				}
+			} else {
+				mlogbackConfigFile = Paths.get(mTnsAdminPathString, APP_TNSSYNC_LOGBACK_FILENAME).toString();
 			}
 
 		} catch (ParseException e) {
@@ -71,9 +89,13 @@ public class PropertiesHandler implements APPCONSTANT {
 				.desc("Specifies a directory where the SQL*Net configuration files (like sqlnet.ora, ldap.ora and tnsnames.ora) are located."
 						+ " Configuration file for this program (" + APP_TNSSYNC_FILENAME + ") is also found here.")
 				.build();
+		Option logbackConfFilePath = Option.builder("l").longOpt("logback_config_file").argName("FILE").hasArg()
+				.desc("Logback configuration file (default file: TNS_ADMIN_DIR/" + APP_TNSSYNC_LOGBACK_FILENAME + ")")
+				.build();
 		mOptions.addOption(helpOption);
 		mOptions.addOption(versionOption);
 		mOptions.addOption(tnsAdminPathOption);
+		mOptions.addOption(logbackConfFilePath);
 	}
 
 	private void validateTnsAdminPath() {
@@ -107,20 +129,32 @@ public class PropertiesHandler implements APPCONSTANT {
 	}
 
 	private void selectLoggingConfigFile() {
-		if (Files.notExists(Paths.get(mTnsAdminPathString, APP_TNSSYNC_LOGBACK_FILENAME))) {
-			return;
-		}
-
 		LoggerContext context = (LoggerContext) org.slf4j.LoggerFactory.getILoggerFactory();
-		try {
-			JoranConfigurator configurator = new JoranConfigurator();
-			configurator.setContext(context);
-			context.reset();
-			configurator.doConfigure(Paths.get(mTnsAdminPathString, APP_TNSSYNC_LOGBACK_FILENAME).toString());
-		} catch (JoranException e) {
-			// StatusPrinter will handle this
+		if (Files.notExists(Paths.get(mlogbackConfigFile))) {
+			PatternLayoutEncoder ple = new PatternLayoutEncoder();
+	        ple.setPattern("%msg%n");
+	        ple.setContext(context);
+	        ple.start();
+	        ConsoleAppender<ILoggingEvent> consoleAppender = new ConsoleAppender<ILoggingEvent>();
+	        consoleAppender.setEncoder(ple);
+	        consoleAppender.setContext(context);
+	        consoleAppender.start();
+	        Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+	        rootLogger.getLoggerContext().reset();
+	        rootLogger.addAppender(consoleAppender);
+	        rootLogger.setLevel(Level.INFO);
+	        rootLogger.setAdditive(false);  
+		} else {
+			try {
+				JoranConfigurator configurator = new JoranConfigurator();
+				configurator.setContext(context);
+				context.reset();
+				configurator.doConfigure(mlogbackConfigFile);
+			} catch (JoranException e) {
+				// StatusPrinter will handle this
+			}
+			StatusPrinter.printInCaseOfErrorsOrWarnings(context);
 		}
-		StatusPrinter.printInCaseOfErrorsOrWarnings(context);
 	}
 
 	private void printUsageInfo() {
@@ -130,17 +164,15 @@ public class PropertiesHandler implements APPCONSTANT {
 				+ ").\n\n";
 		final String footer = "\n"
 				+ "Licensed under the Apache License Version 2.0, http://www.apache.org/licenses/LICENSE-2.0";
-		final String warning_msg = "WARNING: " + APP_NAME + " is able to owerwrite the existing "
+		final String warning_msg = "WARNING: " + APP_NAME + " is able to owerwrite / append the existing "
 				+ APP_TNSNAMES_FILENAME + " file!\n\n";
-		final String logging_msg = APP_NAME
-				+ " provides logging functionality using Simple Logging Facade for Java (SLF4J) with a logback backend. "
-				+ "Logback looks for a configuration file named " + APP_TNSSYNC_LOGBACK_FILENAME
-				+ " in TNS_ADMIN directory.\n\n";
+		final String logging_msg = "This utility"
+				+ " provides logging functionality using Simple Logging Facade for Java (SLF4J) with a logback backend.\n\n";
 		final int width = 120;
 		final PrintWriter writer = new PrintWriter(System.out);
 
 		HelpFormatter formatter = new HelpFormatter();
-		formatter.printUsage(writer, width, "java -jar " + APP_NAME + ".jar [-ta <DIR>]");
+		formatter.printUsage(writer, width, "java -jar " + APP_NAME + ".jar [-ta <DIR>] [-l <FILE>]");
 		formatter.printUsage(writer, width, "java -jar " + APP_NAME + ".jar -h");
 		formatter.printUsage(writer, width, "java -jar " + APP_NAME + ".jar -v");
 		formatter.printWrapped(writer, width, header);
