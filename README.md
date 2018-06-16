@@ -6,25 +6,25 @@ Usage
 ----
 
 ```
-usage: java -jar tnssync.jar [-ta <DIR>]
+usage: java -jar tnssync.jar [-ta <DIR>] [-l <FILE>]
 usage: java -jar tnssync.jar -h
 usage: java -jar tnssync.jar -v
 
- -h,--help                   Print this message
- -ta,--tns_admin_dir <DIR>   Specifies a directory where the SQL*Net configuration files (like sqlnet.ora,
-                             ldap.ora and tnsnames.ora) are located. Configuration file for this program 
-                             (tnssync.ora) is also found here.
- -v,--version                Print the version of the application
+ -h,--help                         Print this message
+ -l,--logback_config_file <FILE>   Logback configuration file (default file: TNS_ADMIN_DIR/tnssync_logback.xml)
+ -ta,--tns_admin_dir <DIR>         Specifies a directory where the SQL*Net configuration files (like sqlnet.ora,
+                                   ldap.ora and tnsnames.ora) are located. Configuration file for this program
+                                   (tnssync.ora) is also found here.
+ -v,--version                      Print the version of the application
 ```
 
 Logging
 ----
-tnssync provides logging functionality using Simple Logging Facade for Java (SLF4J) with a logback backend. Logback
-looks for a configuration file named tnssync_logback.xml in TNS_ADMIN directory.
+tnssync provides logging functionality using Simple Logging Facade for Java (SLF4J) with a logback backend.
 
 Warning
 ----
-tnssync is able to owerwrite the existing tnsnames.ora file!
+tnssync is able to owerwrite / append the existing tnsnames.ora file!
 
 License
 -------
